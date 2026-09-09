@@ -10,7 +10,13 @@ data class OfflineCard(
     val title: String,
     val listId: String,
     val listName: String? = null,
+    val labelIds: String? = null,
+    val labelNames: String? = null,
+    val labelColors: String? = null,
+    val dueDate: String? = null,
     val status: SyncStatus = SyncStatus.PENDING,
+    val attachmentCount: Int = 0,
+    val localAttachmentPaths: String? = null,
     val errorMessage: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )

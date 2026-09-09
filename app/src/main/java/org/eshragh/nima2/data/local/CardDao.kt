@@ -13,6 +13,9 @@ interface CardDao {
     @Query("SELECT * FROM offline_cards ORDER BY createdAt DESC")
     fun getAllCards(): Flow<List<OfflineCard>>
 
+    @Query("SELECT * FROM offline_cards ORDER BY createdAt DESC")
+    suspend fun getAllCardsSync(): List<OfflineCard>
+
     @Query("SELECT * FROM offline_cards WHERE status = :status ORDER BY createdAt ASC")
     suspend fun getCardsByStatus(status: SyncStatus): List<OfflineCard>
 

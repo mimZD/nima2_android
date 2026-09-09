@@ -4,10 +4,26 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 
-@Database(entities = [OfflineCard::class], version = 1, exportSchema = false)
+@Database(
+    entities = [
+        OfflineCard::class,
+        ServerKartablCardEntity::class,
+        CachedProjectEntity::class,
+        CachedBoardEntity::class,
+        CachedListEntity::class,
+        CachedLabelEntity::class,
+        CachedFullListCardEntity::class
+    ],
+    version = 10,
+    exportSchema = false
+)
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun cardDao(): CardDao
+    abstract fun serverKartablDao(): ServerKartablDao
+    abstract fun metadataDao(): MetadataDao
 
     companion object {
         @Volatile
@@ -19,7 +35,10 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "nima2_database"
-                ).build()
+                )
+                .allowMainThreadQueries()
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }

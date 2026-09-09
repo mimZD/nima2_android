@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val vName = "0.2"
+
 android {
     namespace = "org.eshragh.nima2"
     compileSdk = 37
@@ -12,8 +14,8 @@ android {
         applicationId = "org.eshragh.nima2"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = vName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -38,6 +40,10 @@ android {
     }
 }
 
+base {
+    archivesName.set("nima2-v$vName")
+}
+
 ksp {
     arg("room.generateKotlin", "true")
 }
@@ -54,6 +60,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Room
     implementation(libs.room.runtime)
@@ -67,6 +74,10 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.okhttp.logging)
+
+    // Jalali Date Picker Calendar
+    implementation(libs.jalali.datepicker.compose)
+    implementation(libs.jalali.calendar)
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
