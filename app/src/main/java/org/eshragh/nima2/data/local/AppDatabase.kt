@@ -16,7 +16,7 @@ import androidx.room.TypeConverters
         CachedLabelEntity::class,
         CachedFullListCardEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

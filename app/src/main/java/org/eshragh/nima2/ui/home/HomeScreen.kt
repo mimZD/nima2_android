@@ -32,53 +32,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallFloatingActionButton
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -86,13 +44,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -116,12 +77,24 @@ import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
+import com.airbnb.lottie.LottieProperty
+import com.airbnb.lottie.compose.*
+import org.eshragh.nima2.R
 import org.eshragh.nima2.data.local.OfflineCard
 import org.eshragh.nima2.data.local.SyncStatus
 import org.eshragh.nima2.data.remote.model.PlankaBoard
 import org.eshragh.nima2.data.remote.model.PlankaList
 import org.eshragh.nima2.data.remote.model.PlankaProject
+import org.eshragh.nima2.util.FileUtils
 import org.eshragh.nima2.util.toPersianDigits
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -269,9 +242,24 @@ fun HomeScreen(
     val cards = viewModel.offlineCardsState
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+
+    // THE ONLY PLACE where Share is handled
+    LaunchedEffect(Unit) {
+        org.eshragh.nima2.util.ShareManager.pendingShare.collect { data ->
+            if (data != null && !viewModel.showAddCardDialog) {
+                android.util.Log.d("NIMA2_SHARE", "[Step 0] HomeScreen UI detected pending data. Title: ${data.text?.take(10)}")
+                viewModel.handleIncomingShare(data.text, data.uris)
+                // We DO NOT consume yet. We will consume when the dialog is closed.
+            }
+        }
+    }
 
     var isSpeedDialExpanded by remember { mutableStateOf(false) }
     val pendingCount = cards.count { it.status == SyncStatus.PENDING || it.status == SyncStatus.FAILED }
+    val isAnySyncing = remember(cards) { cards.any { it.status == SyncStatus.UPLOADING || it.status == SyncStatus.SYNCED } }
+
+    var isRefreshing by remember { mutableStateOf(false) }
 
     val todayJalali = remember { org.eshragh.nima2.util.JalaliCalendarHelper.currentDateInJalali() }
     val todayOrOverdueCount = remember(cards) {
@@ -312,29 +300,10 @@ fun HomeScreen(
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = Color.Transparent,
                             titleContentColor = Color.White,
-                            actionIconContentColor = Color.White
+                            actionIconContentColor = Color.White,
+                            navigationIconContentColor = Color.White
                         ),
-                        actions = {
-                            IconButton(onClick = onOpenDueDates) {
-                                BadgedBox(
-                                    badge = {
-                                        if (todayOrOverdueCount > 0) {
-                                            Badge(
-                                                containerColor = MaterialTheme.colorScheme.secondary,
-                                                contentColor = MaterialTheme.colorScheme.onSecondary
-                                            ) {
-                                                Text(todayOrOverdueCount.toPersianDigits(), fontWeight = FontWeight.Bold)
-                                            }
-                                        }
-                                    }
-                                ) {
-                                    Icon(Icons.Default.DateRange, contentDescription = "کارتابل")
-                                }
-                            }
-                            IconButton(onClick = viewModel::loadInitialDataAndRestoreSelections) {
-                                Icon(Icons.Default.Refresh, contentDescription = "به‌روزرسانی داده‌ها")
-                            }
-                            
+                        navigationIcon = {
                             var showMenu by remember { mutableStateOf(false) }
                             Box {
                                 IconButton(onClick = { showMenu = true }) {
@@ -362,57 +331,76 @@ fun HomeScreen(
                                     )
                                 }
                             }
+                        },
+                        actions = {
+                            // Refresh button removed, using pull-to-refresh
                         }
                     )
                 }
             },
             snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { innerPadding ->
-            Column(
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    scope.launch {
+                        isRefreshing = true
+                        viewModel.loadInitialDataAndRestoreSelections()
+                        delay(1000)
+                        isRefreshing = false
+                    }
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .padding(16.dp)
             ) {
-                // Offline Cards List
-                if (cards.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "هیچ کارتی ثبت نشده است",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "برای ثبت کارت جدید روی دکمه + کلیک کنید",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(cards, key = { it.id }) { card ->
-                            AnimatedVisibility(
-                                visible = true,
-                                exit = fadeOut(animationSpec = tween(300)) + shrinkVertically(animationSpec = tween(300))
-                            ) {
-                                SwipeableOfflineCardItem(
-                                    card = card,
-                                    onDelete = { viewModel.cardToDelete = card },
-                                    onEdit = { viewModel.cardToEdit = card }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                ) {
+                    // Offline Cards List
+                    if (cards.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "هیچ کارتی ثبت نشده است",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Medium
                                 )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "برای ثبت کارت جدید روی دکمه + کلیک کنید",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(cards, key = { it.id }) { card ->
+                                AnimatedVisibility(
+                                    visible = true,
+                                    exit = fadeOut(animationSpec = tween(300)) + shrinkVertically(animationSpec = tween(300))
+                                ) {
+                                    SwipeableOfflineCardItem(
+                                        card = card,
+                                        isAnySyncing = isAnySyncing,
+                                        onDelete = { viewModel.cardToDelete = card },
+                                        onEdit = { viewModel.cardToEdit = card },
+                                        onSyncedAnimationFinished = { viewModel.deleteCard(card) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -430,7 +418,7 @@ fun HomeScreen(
             )
         }
 
-        // Speed Dial Arc Options & Main FAB Container (Positioned on the Right side in RTL)
+        // Speed Dial Arc Options & Main FAB Container
         Box(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -438,132 +426,168 @@ fun HomeScreen(
                 .padding(bottom = 32.dp, start = 24.dp),
             contentAlignment = Alignment.BottomStart
         ) {
-            val progress by animateFloatAsState(
-                targetValue = if (isSpeedDialExpanded) 1f else 0f,
-                animationSpec = tween(durationMillis = 300),
-                label = "SpeedDialProgress"
-            )
-
-            val fabRotation by animateFloatAsState(
-                targetValue = if (isSpeedDialExpanded) 45f else 0f,
-                animationSpec = tween(durationMillis = 300),
-                label = "FabRotation"
-            )
-
-            if (progress > 0.01f) {
-                val radius = 110.dp.value
-                // 4 Arc Actions (Angles: 90°, 60°, 30°, 0°)
-                val actions = listOf(
-                    Triple(CustomUploadIcon, "آپلود", 90f),
-                    Triple(ApartmentIcon, viewModel.selectedProject?.name ?: "پروژه", 60f),
-                    Triple(Icons.Default.Home, viewModel.selectedBoard?.name ?: "بورد", 30f),
-                    Triple(Icons.Default.Menu, viewModel.selectedList?.name ?: "لیست", 0f)
-                )
-
-                actions.forEachIndexed { index, (icon, label, angleDeg) ->
-                    val angleRad = Math.toRadians(angleDeg.toDouble())
-                    val xOffset = (radius * cos(angleRad) * progress).dp
-                    val yOffset = (-radius * sin(angleRad) * progress).dp
-
-                    Row(
-                        modifier = Modifier
-                            .offset(x = xOffset, y = yOffset)
-                            .scale(progress)
-                            .alpha(progress),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (index == 0) { // Upload Action with Badge only
-                            BadgedBox(
-                                badge = {
-                                    if (pendingCount > 0) {
-                                        Badge(
-                                            containerColor = MaterialTheme.colorScheme.error,
-                                            contentColor = MaterialTheme.colorScheme.onError
-                                        ) {
-                                            Text(pendingCount.toPersianDigits(), fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                }
-                            ) {
-                                SmallFloatingActionButton(
-                                    onClick = {
-                                        isSpeedDialExpanded = false
-                                        viewModel.uploadCards()
-                                    },
-                                    containerColor = MaterialTheme.colorScheme.tertiary,
-                                    contentColor = MaterialTheme.colorScheme.onTertiary
-                                ) {
-                                    Icon(icon, contentDescription = label, modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        } else {
-                            SmallFloatingActionButton(
-                                onClick = {
-                                    // Do NOT close Speed Dial so user can select all 3
-                                    when (index) {
-                                        1 -> viewModel.showProjectPicker = true
-                                        2 -> viewModel.showBoardPicker = true
-                                        3 -> viewModel.showListPicker = true
-                                    }
-                                },
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Secondary FAB: Kartabl (Clipboard Icon)
+                BadgedBox(
+                    badge = {
+                        if (todayOrOverdueCount > 0) {
+                            Badge(
                                 containerColor = MaterialTheme.colorScheme.secondary,
                                 contentColor = MaterialTheme.colorScheme.onSecondary
                             ) {
-                                Icon(icon, contentDescription = label, modifier = Modifier.size(20.dp))
-                            }
-
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            Surface(
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                shape = RoundedCornerShape(6.dp),
-                                shadowElevation = 2.dp
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Text(todayOrOverdueCount.toPersianDigits(), fontWeight = FontWeight.Bold)
                             }
                         }
                     }
+                ) {
+                    SmallFloatingActionButton(
+                        onClick = onOpenDueDates,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        shape = CircleShape,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Assignment,
+                            contentDescription = "کارتابل",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
-            }
 
-            // Main FAB (Add Card on Tap, Speed Dial on Long Press)
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shadowElevation = 6.dp,
-                modifier = Modifier
-                    .size(56.dp)
-                    .combinedClickable(
-                        onClick = {
-                            if (isSpeedDialExpanded) {
-                                isSpeedDialExpanded = false
-                            } else {
-                                viewModel.showAddCardDialog = true
+                // Main Speed Dial Arc Options & FAB
+                Box(contentAlignment = Alignment.BottomStart) {
+                    val progress by animateFloatAsState(
+                        targetValue = if (isSpeedDialExpanded) 1f else 0f,
+                        animationSpec = tween(durationMillis = 300),
+                        label = "SpeedDialProgress"
+                    )
+
+                    val fabRotation by animateFloatAsState(
+                        targetValue = if (isSpeedDialExpanded) 45f else 0f,
+                        animationSpec = tween(durationMillis = 300),
+                        label = "FabRotation"
+                    )
+
+                    if (progress > 0.01f) {
+                        val radius = 110.dp.value
+                        // 4 Arc Actions (Angles: 90°, 60°, 30°, 0°)
+                        val actions = listOf(
+                            Triple(CustomUploadIcon, "آپلود", 90f),
+                            Triple(ApartmentIcon, viewModel.selectedProject?.name ?: "پروژه", 60f),
+                            Triple(Icons.Default.Home, viewModel.selectedBoard?.name ?: "بورد", 30f),
+                            Triple(Icons.Default.Menu, viewModel.selectedList?.name ?: "لیست", 0f)
+                        )
+
+                        actions.forEachIndexed { index, (icon, label, angleDeg) ->
+                            val angleRad = Math.toRadians(angleDeg.toDouble())
+                            val xOffset = (radius * cos(angleRad) * progress).dp
+                            val yOffset = (-radius * sin(angleRad) * progress).dp
+
+                            Row(
+                                modifier = Modifier
+                                    .offset(x = xOffset, y = yOffset)
+                                    .scale(progress)
+                                    .alpha(progress),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (index == 0) { // Upload Action with Badge only
+                                    BadgedBox(
+                                        badge = {
+                                            if (pendingCount > 0) {
+                                                Badge(
+                                                    containerColor = MaterialTheme.colorScheme.error,
+                                                    contentColor = MaterialTheme.colorScheme.onError
+                                                ) {
+                                                    Text(pendingCount.toPersianDigits(), fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        SmallFloatingActionButton(
+                                            onClick = {
+                                                isSpeedDialExpanded = false
+                                                viewModel.uploadCards()
+                                            },
+                                            containerColor = MaterialTheme.colorScheme.tertiary,
+                                            contentColor = MaterialTheme.colorScheme.onTertiary
+                                        ) {
+                                            Icon(icon, contentDescription = label, modifier = Modifier.size(20.dp))
+                                        }
+                                    }
+                                } else {
+                                    SmallFloatingActionButton(
+                                        onClick = {
+                                            // Do NOT close Speed Dial so user can select all 3
+                                            when (index) {
+                                                1 -> viewModel.showProjectPicker = true
+                                                2 -> viewModel.showBoardPicker = true
+                                                3 -> viewModel.showListPicker = true
+                                            }
+                                        },
+                                        containerColor = MaterialTheme.colorScheme.secondary,
+                                        contentColor = MaterialTheme.colorScheme.onSecondary
+                                    ) {
+                                        Icon(icon, contentDescription = label, modifier = Modifier.size(20.dp))
+                                    }
+
+                                    Spacer(modifier = Modifier.width(6.dp))
+
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.secondaryContainer,
+                                        shape = RoundedCornerShape(6.dp),
+                                        shadowElevation = 2.dp
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
                             }
-                        },
-                        onLongClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            isSpeedDialExpanded = !isSpeedDialExpanded
                         }
-                    )
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "ثبت کارت / گزینه‌ها",
+                    }
+
+                    // Main FAB (Add Card on Tap, Speed Dial on Long Press)
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        shadowElevation = 6.dp,
                         modifier = Modifier
-                            .size(26.dp)
-                            .rotate(fabRotation)
-                    )
+                            .size(56.dp)
+                            .combinedClickable(
+                                onClick = {
+                                    if (isSpeedDialExpanded) {
+                                        isSpeedDialExpanded = false
+                                    } else {
+                                        viewModel.showAddCardDialog = true
+                                    }
+                                },
+                                onLongClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    isSpeedDialExpanded = !isSpeedDialExpanded
+                                }
+                            )
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "ثبت کارت / گزینه‌ها",
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .rotate(fabRotation)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -614,6 +638,29 @@ fun HomeScreen(
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
+
+                        if (viewModel.selectedAttachmentUris.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Info, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "توجه: فایل‌های پیوست فقط به کارت اول اضافه خواهند شد.",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                }
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Button(
@@ -660,7 +707,10 @@ fun HomeScreen(
 
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
             AlertDialog(
-                onDismissRequest = { viewModel.showAddCardDialog = false },
+                onDismissRequest = { 
+                    viewModel.showAddCardDialog = false 
+                    viewModel.consumeIncomingShare() // Clean up on cancel
+                },
                 title = {
                     Text(
                         text = "ثبت کارت آفلاین جدید",
@@ -1272,8 +1322,10 @@ fun OptionPickerDialog(
 @Composable
 fun SwipeableOfflineCardItem(
     card: OfflineCard,
+    isAnySyncing: Boolean,
     onDelete: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onSyncedAnimationFinished: () -> Unit
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { dismissValue ->
@@ -1358,7 +1410,11 @@ fun SwipeableOfflineCardItem(
             }
         }
     ) {
-        OfflineCardItem(card = card)
+        OfflineCardItem(
+            card = card,
+            isAnySyncing = isAnySyncing,
+            onSyncedAnimationFinished = onSyncedAnimationFinished
+        )
     }
 }
 
@@ -1413,7 +1469,9 @@ fun DueDateSelectorButton(
 
 @Composable
 fun OfflineCardItem(
-    card: OfflineCard
+    card: OfflineCard,
+    isAnySyncing: Boolean,
+    onSyncedAnimationFinished: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1537,6 +1595,68 @@ fun OfflineCardItem(
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+            }
+
+            val isUploading = card.status == SyncStatus.UPLOADING
+            val isPending = card.status == SyncStatus.PENDING
+            val isSynced = card.status == SyncStatus.SYNCED
+
+            if (isUploading || (isPending && isAnySyncing) || isSynced) {
+                val lottieRes = if (isSynced) R.raw.success else R.raw.list_loading
+                val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(lottieRes))
+                
+                // Adjust speed to make success animation last exactly 2 seconds if requested
+                val speed = if (isSynced && composition != null) {
+                    composition!!.duration / 2000f
+                } else 1f
+
+                val progress by animateLottieCompositionAsState(
+                    composition = composition,
+                    iterations = if (isSynced) 1 else LottieConstants.IterateForever,
+                    speed = speed,
+                    restartOnPlay = true
+                )
+
+                // When success animation finishes, trigger deletion
+                if (isSynced && progress >= 1f) {
+                    LaunchedEffect(card.id) {
+                        onSyncedAnimationFinished()
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.White.copy(alpha = 0.8f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val brandGradient = Brush.horizontalGradient(
+                        colors = listOf(PrimaryDarkBlue, PrimaryBlue, BrandCyan)
+                    )
+
+                    LottieAnimation(
+                        composition = composition,
+                        progress = { progress },
+                        modifier = Modifier
+                            .size(if (isSynced) 60.dp else 90.dp)
+                            .padding(vertical = 8.dp)
+                            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                            .drawWithContent {
+                                drawContent()
+                                if (!isPending) {
+                                    drawRect(
+                                        brush = brandGradient,
+                                        blendMode = BlendMode.SrcIn
+                                    )
+                                } else {
+                                    drawRect(
+                                        color = Color.Gray.copy(alpha = 0.5f),
+                                        blendMode = BlendMode.SrcIn
+                                    )
+                                }
+                            }
                     )
                 }
             }
@@ -1677,6 +1797,7 @@ fun AttachmentList(
     uris: List<android.net.Uri>,
     onRemove: (android.net.Uri) -> Unit
 ) {
+    val context = LocalContext.current
     if (uris.isNotEmpty()) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
@@ -1699,7 +1820,36 @@ fun AttachmentList(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Icon(AttachmentIcon, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color.LightGray),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val mimeType = context.contentResolver.getType(uri)
+                                    val fileName = uri.lastPathSegment ?: ""
+                                    val isImage = mimeType?.startsWith("image") == true || 
+                                                 fileName.lowercase().let { it.endsWith(".jpg") || it.endsWith(".jpeg") || it.endsWith(".png") || it.endsWith(".webp") }
+                                    
+                                    if (isImage) {
+                                        AsyncImage(
+                                            model = uri,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                        )
+                                    } else {
+                                        val fileName = uri.lastPathSegment ?: ""
+                                        val fileIcon = FileUtils.getFileIcon(fileName, mimeType)
+                                        Icon(
+                                            imageVector = fileIcon,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = uri.lastPathSegment ?: "فایل",

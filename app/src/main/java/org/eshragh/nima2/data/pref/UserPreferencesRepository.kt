@@ -53,7 +53,15 @@ class UserPreferencesRepository(private val context: Context) {
         private val QUICK_MOVE_LIST_ID = stringPreferencesKey("quick_move_list_id")
         private val QUICK_MOVE_LIST_NAME = stringPreferencesKey("quick_move_list_name")
 
+        private val LAST_SYNC_TIME = stringPreferencesKey("last_sync_time")
+
         const val DEFAULT_SERVER_URL = "https://nima2.eshragh.org"
+    }
+
+    val lastSyncTime: Flow<String?> = context.dataStore.data.map { it[LAST_SYNC_TIME] }
+
+    suspend fun saveLastSyncTime(time: String) {
+        context.dataStore.edit { it[LAST_SYNC_TIME] = time }
     }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { preferences ->

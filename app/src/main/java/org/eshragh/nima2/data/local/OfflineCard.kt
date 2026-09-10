@@ -17,6 +17,7 @@ data class OfflineCard(
     val status: SyncStatus = SyncStatus.PENDING,
     val attachmentCount: Int = 0,
     val localAttachmentPaths: String? = null,
+    val remoteCardId: String? = null,
     val errorMessage: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )

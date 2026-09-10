@@ -7,13 +7,14 @@ espressoCore = "3.7.0"
 lifecycleRuntimeKtx = "2.6.1"
 activityCompose = "1.13.0"
 kotlin = "2.2.10"
-composeBom = "2026.02.01"
+composeBom = "2026.09.00"
 room = "2.6.1"
 retrofit = "2.11.0"
 okhttp = "4.12.0"
 datastore = "1.1.2"
 navigationCompose = "2.8.8"
 workManager = "2.9.1"
+coil = "2.6.0"
 ksp = "2.1.20-1.0.31"
 jalali-datepicker = "1.2.0"
 jalali-calendar = "1.3.3"
@@ -35,8 +36,11 @@ androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
+androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+coil-network-okhttp = { group = "io.coil-kt", name = "coil-base", version.ref = "coil" }
 
 # Room
 room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
@@ -54,6 +58,7 @@ okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor",
 # Jalali Date Picker
 jalali-datepicker-compose = { group = "com.github.hamooo90", name = "jalali-datepicker-compose", version.ref = "jalali-datepicker" }
 jalali-calendar = { group = "ir.huri", name = "JalaliCalendar", version.ref = "jalali-calendar" }
+lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version = "6.4.0" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

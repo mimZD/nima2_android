@@ -47,9 +47,39 @@ data class PlankaAttachment(
     val id: String,
     val cardId: String,
     val name: String,
-    val url: String? = null,
-    val coverUrl: String? = null
+    val type: String,
+    val data: com.google.gson.JsonElement? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null
 )
+
+fun PlankaAttachment.extractUrl(): String? {
+    if (data == null || !data.isJsonObject) return null
+    val obj = data.asJsonObject
+    val element = obj.get("url")
+    return if (element != null && element.isJsonPrimitive) element.asString else null
+}
+
+fun PlankaAttachment.extractThumbnailUrl(): String? {
+    if (data == null || !data.isJsonObject) return null
+    val obj = data.asJsonObject
+    val thumbsElement = obj.get("thumbnailUrls")
+    if (thumbsElement != null && thumbsElement.isJsonObject) {
+        val thumbs = thumbsElement.asJsonObject
+        val o360 = thumbs.get("outside360")
+        if (o360 != null && o360.isJsonPrimitive) return o360.asString
+        val o720 = thumbs.get("outside720")
+        if (o720 != null && o720.isJsonPrimitive) return o720.asString
+    }
+    return null // Return null if no actual thumbnail exists, to trigger icon fallback
+}
+
+fun PlankaAttachment.extractMimeType(): String? {
+    if (data == null || !data.isJsonObject) return null
+    val obj = data.asJsonObject
+    val element = obj.get("mimeType")
+    return if (element != null && element.isJsonPrimitive) element.asString else null
+}
 
 data class PlankaCardLabel(
     val id: String,

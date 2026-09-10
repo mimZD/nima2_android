@@ -8,6 +8,10 @@ import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
 import org.eshragh.nima2.data.local.CachedBoardEntity
+import coil.ImageLoader
+import coil.request.ImageRequest
+import kotlinx.coroutines.flow.firstOrNull
+import okhttp3.OkHttpClient
 import org.eshragh.nima2.data.local.CachedFullListCardEntity
 import org.eshragh.nima2.data.local.CachedLabelEntity
 import org.eshragh.nima2.data.local.CachedListEntity
@@ -31,6 +35,8 @@ import org.eshragh.nima2.data.remote.model.PlankaCardLabel
 import org.eshragh.nima2.data.remote.model.PlankaLabel
 import org.eshragh.nima2.data.remote.model.PlankaList
 import org.eshragh.nima2.data.remote.model.PlankaProject
+import org.eshragh.nima2.data.remote.model.extractThumbnailUrl
+import org.eshragh.nima2.data.remote.model.extractUrl
 
 data class ProjectsAndBoardsResult(
     val projects: List<PlankaProject>,
@@ -63,6 +69,11 @@ data class ServerKartablResult(
     val boardAttachmentsMap: Map<String, List<PlankaAttachment>>
 )
 
+data class FullListResult(
+    val cards: List<ServerKartablCard>,
+    val attachments: List<PlankaAttachment>
+)
+
 class CardRepository(
     private val context: android.content.Context,
     private val cardDao: CardDao,
@@ -80,6 +91,114 @@ class CardRepository(
     suspend fun updateCardStatus(card: OfflineCard, status: SyncStatus, error: String? = null) {
         val updated = card.copy(status = status, errorMessage = error)
         cardDao.updateCard(updated)
+    }
+
+    private var imageLoader: ImageLoader? = null
+
+    fun getImageLoader(): ImageLoader {
+        if (imageLoader == null) {
+            val logging = okhttp3.logging.HttpLoggingInterceptor().apply {
+                level = okhttp3.logging.HttpLoggingInterceptor.Level.HEADERS
+            }
+            val okHttpClient = OkHttpClient.Builder()
+                .addInterceptor(logging)
+                .addInterceptor { chain ->
+                    val original = chain.request()
+                    val token = kotlinx.coroutines.runBlocking(Dispatchers.IO) { 
+                        userPreferencesRepository.authToken.firstOrNull() 
+                    }
+                    val requestBuilder = original.newBuilder()
+                    if (token != null) {
+                        val cleanToken = token.trim()
+                        requestBuilder.header("Authorization", "Bearer $cleanToken")
+                        requestBuilder.addHeader("Cookie", "accessToken=$cleanToken")
+                        
+                        val originalUrl = original.url.toString()
+                        if (originalUrl.contains("/attachments/")) {
+                            val separator = if (originalUrl.contains("?")) "&" else "?"
+                            requestBuilder.url("$originalUrl${separator}accessToken=$cleanToken")
+                        }
+                    }
+                    chain.proceed(requestBuilder.build())
+                }
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+            imageLoader = ImageLoader.Builder(context)
+                .okHttpClient(okHttpClient)
+                .crossfade(true)
+                .build()
+        }
+        return imageLoader!!
+    }
+
+    suspend fun getFullUrl(relativeUrl: String?): String? {
+        if (relativeUrl == null) return null
+        if (relativeUrl.startsWith("http")) return relativeUrl
+        val baseUrl = userPreferencesRepository.serverUrl.firstOrNull() ?: return null
+        return "${baseUrl.trimEnd('/')}${if (relativeUrl.startsWith("/")) "" else "/"}$relativeUrl"
+    }
+
+    fun getFullUrlSync(relativeUrl: String?): String? {
+        if (relativeUrl == null) return null
+        if (relativeUrl.startsWith("http")) return relativeUrl
+        val baseUrl = kotlinx.coroutines.runBlocking { userPreferencesRepository.serverUrl.firstOrNull() } ?: return null
+        val cleanBase = baseUrl.trimEnd('/')
+        val cleanRelative = if (relativeUrl.startsWith("/")) relativeUrl else "/$relativeUrl"
+        return "$cleanBase$cleanRelative"
+    }
+
+    suspend fun downloadFileToTemp(url: String, fileName: String): java.io.File? {
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val token = userPreferencesRepository.authToken.firstOrNull()
+                val logging = okhttp3.logging.HttpLoggingInterceptor().apply {
+                    level = okhttp3.logging.HttpLoggingInterceptor.Level.HEADERS
+                }
+                
+                val okHttpClient = OkHttpClient.Builder()
+                    .addInterceptor(logging)
+                    .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+                
+                val cleanToken = token?.trim()
+                val finalUrl = if (cleanToken != null && !url.contains("accessToken=")) {
+                    val separator = if (url.contains("?")) "&" else "?"
+                    "$url${separator}accessToken=$cleanToken"
+                } else url
+
+                val request = okhttp3.Request.Builder()
+                    .url(finalUrl)
+                    .apply { 
+                        if (cleanToken != null) {
+                            header("Authorization", "Bearer $cleanToken")
+                            addHeader("Cookie", "accessToken=$cleanToken")
+                        }
+                    }
+                    .build()
+                
+                okHttpClient.newCall(request).execute().use { response ->
+                    android.util.Log.d("NIMA2_NETWORK", "Download Response: ${response.code}")
+                    if (response.isSuccessful) {
+                        val body = response.body ?: return@withContext null
+                        val tempFile = java.io.File(context.cacheDir, "preview_$fileName")
+                        body.byteStream().use { input ->
+                            tempFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        tempFile
+                    } else {
+                        val errorBody = response.body?.string()
+                        android.util.Log.e("NIMA2_NETWORK", "Download Failed (${response.code}): $errorBody")
+                        null
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("NIMA2_NETWORK", "Download Error: ${e.localizedMessage}")
+                null
+            }
+        }
     }
 
     fun triggerSync() {
@@ -141,7 +260,6 @@ class CardRepository(
     suspend fun getAllCardsSync(): List<OfflineCard> = cardDao.getAllCardsSync()
 
     val cachedServerCards: Flow<List<ServerKartablCard>> = serverKartablDao.getAllCachedCards().map { entities ->
-        android.util.Log.d("NIMA2_KARTABL_DEBUG", "Room DB emitted cached entities count: ${entities.size}")
         entities.map { entity ->
             val assignedLabels = if (!entity.labelNames.isNullOrBlank()) {
                 val names = entity.labelNames.split(",")
@@ -270,7 +388,7 @@ class CardRepository(
         boardName: String,
         listId: String,
         listName: String
-    ): Result<List<ServerKartablCard>> {
+    ): Result<FullListResult> {
         return try {
             val api = RetrofitClient.getApi(serverUrl)
             val authHeader = "Bearer $token"
@@ -282,7 +400,7 @@ class CardRepository(
                 val labels = included?.labels ?: emptyList()
                 val cardLabels = included?.cardLabels ?: emptyList()
                 val attachments = included?.attachments ?: emptyList()
-
+                
                 val labelMap = labels.associateBy { it.id }
                 val attachmentMap = attachments.groupBy { it.cardId }
                 val cardToLabelIdsMap = cardLabels.groupBy { it.cardId }
@@ -327,7 +445,7 @@ class CardRepository(
                     metadataDao.insertFullListCards(entities)
                 } catch (_: Exception) {}
 
-                Result.success(resultCards)
+                Result.success(FullListResult(resultCards, attachments))
             } else {
                 Result.failure(Exception("خطا در دریافت کارت‌های لیست: ${response.code()}"))
             }
@@ -629,42 +747,48 @@ class CardRepository(
                         val cardToAttachmentsMap = attachments.groupBy { it.cardId }
 
                         for (card in cards) {
-                            if (!card.dueDate.isNullOrBlank() && card.isClosed != true) {
-                                val list = listMap[card.listId]
-                                val listName = list?.name ?: "لیست"
+                            try {
+                                if (card.isClosed != true) {
+                                    val list = listMap[card.listId]
+                                    val listName = list?.name ?: "لیست"
 
-                                val cardLabelRelations = cardToLabelIdsMap[card.id] ?: emptyList()
-                                val assignedLabels = cardLabelRelations.mapNotNull { labelMap[it.labelId] }
-                                
-                                val actualAttachmentCount = cardToAttachmentsMap[card.id]?.size ?: 0
+                                    val cardLabelRelations = cardToLabelIdsMap[card.id] ?: emptyList()
+                                    val assignedLabels = cardLabelRelations.mapNotNull { labelMap[it.labelId] }
+                                    
+                                    val actualAttachmentCount = cardToAttachmentsMap[card.id]?.size ?: 0
 
-                                kartablCards.add(
-                                    ServerKartablCard(
-                                        id = card.id,
-                                        name = card.name,
-                                        projectId = board.projectId ?: "",
-                                        projectName = projName,
-                                        boardId = board.id,
-                                        boardName = board.name,
-                                        listId = card.listId,
-                                        listName = listName,
-                                        dueDate = card.dueDate,
-                                        labels = assignedLabels,
-                                        attachmentCount = if (actualAttachmentCount > 0) actualAttachmentCount else (card.attachmentsCount ?: 0)
+                                    kartablCards.add(
+                                        ServerKartablCard(
+                                            id = card.id,
+                                            name = card.name,
+                                            projectId = board.projectId ?: "",
+                                            projectName = projName,
+                                            boardId = board.id,
+                                            boardName = board.name,
+                                            listId = card.listId,
+                                            listName = listName,
+                                            dueDate = card.dueDate,
+                                            labels = assignedLabels,
+                                            attachmentCount = if (actualAttachmentCount > 0) actualAttachmentCount else (card.attachmentsCount ?: 0)
+                                        )
                                     )
-                                )
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.e("NIMA2_NETWORK", "Error processing card ${card.id}: ${e.localizedMessage}")
                             }
                         }
+                    } else {
+                        android.util.Log.e("NIMA2_NETWORK", "Board details request failed: ${response.code()}")
                     }
-                } catch (_: Exception) {
-                    // Continue to next board if a single board fetch fails
+                } catch (e: Exception) {
+                    android.util.Log.e("NIMA2_NETWORK", "Error fetching board ${board.id}: ${e.localizedMessage}")
                 }
             }
 
             val result = ServerKartablResult(kartablCards, boardListsMap, boardLabelsMap, boardAttachmentsMap)
             try {
+                serverKartablDao.clearAll()
                 if (kartablCards.isNotEmpty()) {
-                    serverKartablDao.clearAll()
                     val entities = kartablCards.map { card ->
                         val labelNamesStr = card.labels.map { it.name ?: "" }.joinToString(",")
                         val labelColorsStr = card.labels.map { it.color ?: "" }.joinToString(",")
@@ -697,75 +821,93 @@ class CardRepository(
         val pendingCards = cardDao.getCardsByStatus(SyncStatus.PENDING) +
                 cardDao.getCardsByStatus(SyncStatus.FAILED)
 
-        var uploadedCount = 0
+        var totalUploadedCount = 0
         val api = RetrofitClient.getApi(serverUrl)
         val authHeader = "Bearer $token"
 
-        for (card in pendingCards) {
-            val uploadingCard = card.copy(status = SyncStatus.UPLOADING, errorMessage = null)
-            cardDao.updateCard(uploadingCard)
-
+        for (initialCard in pendingCards) {
+            // Keep track of the card state during the process to avoid status flickering
+            var card = initialCard.copy(status = SyncStatus.UPLOADING)
             try {
-                val response = api.createCard(
-                    listId = card.listId,
-                    authHeader = authHeader,
-                    request = CreateCardRequest(name = card.title, type = "project", dueDate = card.dueDate)
-                )
+                cardDao.updateCard(card)
 
-                val createdCard = response.body()?.item
-                if (response.isSuccessful && createdCard != null) {
-                    // Attach labels to created card on Planka
-                    val labelIdsList = card.labelIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
-                    val labelNamesList = card.labelNames?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
-
-                    for ((idx, labelId) in labelIdsList.withIndex()) {
-                        try {
-                            val labelName = labelNamesList.getOrNull(idx) ?: "برچسب"
-                            var targetLabelId = labelId
-
-                            if (labelId.startsWith("default_")) {
-                                // Default offline label -> Create label on Planka board first if boardId available
-                                val color = when (labelId) {
-                                    "default_red" -> "ruby"
-                                    "default_yellow" -> "amber"
-                                    "default_green" -> "shamrock"
-                                    "default_purple" -> "violet"
-                                    else -> "blue-xchange"
-                                }
-                                val boardId = createdCard.boardId ?: ""
-                                if (boardId.isNotEmpty()) {
-                                    val createLabelRes = api.createLabel(
-                                        boardId = boardId,
-                                        authHeader = authHeader,
-                                        request = CreateLabelRequest(name = labelName, color = color)
-                                    )
-                                    if (createLabelRes.isSuccessful && createLabelRes.body()?.item != null) {
-                                        targetLabelId = createLabelRes.body()!!.item!!.id
+                var currentRemoteCardId = card.remoteCardId
+                
+                // 1. Create card if not already created
+                if (currentRemoteCardId == null) {
+                    val response = api.createCard(
+                        listId = card.listId,
+                        authHeader = authHeader,
+                        request = CreateCardRequest(name = card.title, type = "project", dueDate = card.dueDate)
+                    )
+                    val createdCard = response.body()?.item
+                    if (response.isSuccessful && createdCard != null) {
+                        currentRemoteCardId = createdCard.id
+                        card = card.copy(remoteCardId = currentRemoteCardId)
+                        cardDao.updateCard(card)
+                        
+                        // Attach labels
+                        val labelIdsList = card.labelIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+                        for (labelId in labelIdsList) {
+                            try {
+                                var targetLabelId = labelId
+                                if (labelId.startsWith("default_")) {
+                                    val color = when (labelId) {
+                                        "default_red" -> "ruby"; "default_yellow" -> "amber"
+                                        "default_green" -> "shamrock"; "default_purple" -> "violet"
+                                        else -> "blue-xchange"
                                     }
+                                    val labelName = card.labelNames?.split(",")?.getOrNull(labelIdsList.indexOf(labelId)) ?: "برچسب"
+                                    val createLabelRes = api.createLabel(createdCard.boardId ?: "", authHeader, CreateLabelRequest(labelName, color))
+                                    if (createLabelRes.isSuccessful) targetLabelId = createLabelRes.body()?.item?.id ?: labelId
                                 }
-                            }
+                                api.addCardLabel(currentRemoteCardId, authHeader, AddCardLabelRequest(targetLabelId))
+                            } catch (_: Exception) {}
+                        }
+                    } else {
+                        card = card.copy(status = SyncStatus.FAILED, errorMessage = "خطا در ساخت کارت (${response.code()})")
+                        cardDao.updateCard(card)
+                        continue
+                    }
+                }
 
-                            api.addCardLabel(createdCard.id, authHeader, AddCardLabelRequest(targetLabelId))
-                        } catch (_: Exception) {
-                            // Non-fatal if a label attachment fails
+                // 2. Upload attachments one by one
+                if (currentRemoteCardId != null) {
+                    val paths = card.localAttachmentPaths?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+                    val remainingPaths = paths.toMutableList()
+                    
+                    for (path in paths) {
+                        val uploadRes = uploadServerAttachment(serverUrl, token, currentRemoteCardId, path)
+                        if (uploadRes.isSuccess) {
+                            remainingPaths.remove(path)
+                            try { java.io.File(path).delete() } catch (_: Exception) {}
+                            
+                            // Update state and DB while maintaining UPLOADING status
+                            card = card.copy(
+                                localAttachmentPaths = remainingPaths.joinToString(","),
+                                attachmentCount = remainingPaths.size
+                            )
+                            cardDao.updateCard(card)
+                        } else {
+                            android.util.Log.e("NIMA2_SYNC", "Failed to upload $path: ${uploadRes.exceptionOrNull()?.message}")
                         }
                     }
 
-                    val syncedCard = card.copy(status = SyncStatus.SYNCED, errorMessage = null)
-                    cardDao.updateCard(syncedCard)
-                    uploadedCount++
-                    kotlinx.coroutines.delay(400)
-                    cardDao.deleteCard(syncedCard)
-                } else {
-                    val error = "خطا (${response.code()}): ${response.errorBody()?.string() ?: "نامشخص"}"
-                    cardDao.updateCard(card.copy(status = SyncStatus.FAILED, errorMessage = error))
+                    if (remainingPaths.isEmpty()) {
+                        card = card.copy(status = SyncStatus.SYNCED)
+                        cardDao.updateCard(card)
+                        totalUploadedCount++
+                        // Deletion is now handled by the UI after the success animation
+                    } else {
+                        card = card.copy(status = SyncStatus.FAILED, errorMessage = "برخی ضمیمه‌ها آپلود نشدند")
+                        cardDao.updateCard(card)
+                    }
                 }
             } catch (e: Exception) {
-                val error = "خطای اتصال: ${e.localizedMessage}"
-                cardDao.updateCard(card.copy(status = SyncStatus.FAILED, errorMessage = error))
+                card = card.copy(status = SyncStatus.FAILED, errorMessage = e.localizedMessage)
+                cardDao.updateCard(card)
             }
         }
-
-        return uploadedCount
+        return totalUploadedCount
     }
 }

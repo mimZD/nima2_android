@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-val vName = "0.2"
+val vName = "0.41"
 
 android {
     namespace = "org.eshragh.nima2"
@@ -14,7 +14,7 @@ android {
         applicationId = "org.eshragh.nima2"
         minSdk = 28
         targetSdk = 36
-        versionCode = 3
+        versionCode = 5
         versionName = vName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -53,6 +53,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.core)
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
@@ -61,6 +62,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.coil.compose)
 
     // Room
     implementation(libs.room.runtime)
@@ -78,6 +80,7 @@ dependencies {
     // Jalali Date Picker Calendar
     implementation(libs.jalali.datepicker.compose)
     implementation(libs.jalali.calendar)
+    implementation(libs.lottie.compose)
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

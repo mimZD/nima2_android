@@ -13,6 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,7 +38,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import org.eshragh.nima2.data.local.OfflineCard
+import org.eshragh.nima2.data.remote.model.extractThumbnailUrl
+import org.eshragh.nima2.data.remote.model.extractUrl
+import org.eshragh.nima2.data.remote.model.extractMimeType
 import org.eshragh.nima2.data.repository.ServerKartablCard
 import org.eshragh.nima2.ui.home.DestinationPathChips
 import org.eshragh.nima2.ui.home.DueDateSelectorButton
@@ -48,6 +57,7 @@ import org.eshragh.nima2.ui.theme.PrimaryDarkBlue
 import org.eshragh.nima2.util.JalaliCalendarHelper
 import org.eshragh.nima2.util.NetworkUtils
 import org.eshragh.nima2.util.toPersianDigits
+import org.eshragh.nima2.util.FileUtils
 
 private enum class DueCategory {
     OVERDUE, TODAY, UPCOMING
@@ -111,7 +121,7 @@ fun UpcomingDueDatesScreen(
         listOf(
             ServerDueGroup(DueCategory.OVERDUE, "منقضی‌شده (گذشته)", Color(0xFFEF4444), overdue),
             ServerDueGroup(DueCategory.TODAY, "امروز", Color(0xFFD97706), today),
-            ServerDueGroup(DueCategory.UPCOMING, "روزهای آینده", Color(0xFF0066E6), upcoming)
+            ServerDueGroup(DueCategory.UPCOMING, "روزهای آینده", Color(0xFF307A00), upcoming)
         ).filter { it.cards.isNotEmpty() }
     }
 
@@ -132,8 +142,8 @@ fun UpcomingDueDatesScreen(
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = Color.Transparent,
                             titleContentColor = Color.White,
-                            navigationIconContentColor = Color.White,
-                            actionIconContentColor = Color.White
+                            actionIconContentColor = Color.White,
+                            navigationIconContentColor = Color.White
                         ),
                         navigationIcon = {
                             IconButton(onClick = onBack) {
@@ -141,11 +151,13 @@ fun UpcomingDueDatesScreen(
                             }
                         },
                         actions = {
-                            IconButton(onClick = {
-                                if (viewModel.kartablTab == 0) viewModel.loadServerKartablCards()
-                                else viewModel.viewListSelectedList?.let { viewModel.loadFullListCards(it.id) }
-                            }) {
-                                Icon(imageVector = Icons.Default.Refresh, contentDescription = "به‌روزرسانی")
+                            viewModel.lastSyncTimeState?.let { time ->
+                                Text(
+                                    text = "بروزرسانی: ${time.toPersianDigits()}",
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(end = 12.dp)
+                                )
                             }
                         }
                     )
@@ -166,12 +178,17 @@ fun UpcomingDueDatesScreen(
                         Tab(
                             selected = viewModel.kartablTab == 0,
                             onClick = { viewModel.kartablTab = 0 },
-                            text = { Text("مهلت‌های انجام", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                            text = { Text("مهلت‌های انجام", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                         )
                         Tab(
                             selected = viewModel.kartablTab == 1,
                             onClick = { viewModel.kartablTab = 1 },
-                            text = { Text("نمایش لیست", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                            text = { Text("نمایش لیست", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                        )
+                        Tab(
+                            selected = viewModel.kartablTab == 2,
+                            onClick = { viewModel.kartablTab = 2 },
+                            text = { Text("جستجو", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                         )
                     }
                 }
@@ -179,16 +196,33 @@ fun UpcomingDueDatesScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
-        Column(
+        var isRefreshing by remember { mutableStateOf(false) }
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                scope.launch {
+                    isRefreshing = true
+                    if (viewModel.kartablTab == 0) viewModel.loadServerKartablCards()
+                    else if (viewModel.kartablTab == 1) viewModel.viewListSelectedList?.let { viewModel.loadFullListCards(it.id) }
+                    else viewModel.loadServerKartablCards()
+                    kotlinx.coroutines.delay(1000)
+                    isRefreshing = false
+                }
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp)
         ) {
-            if (viewModel.kartablTab == 0) {
-                DueDatesTabContent(viewModel, dueGroups, lastSnackbarTime, { lastSnackbarTime = it }, snackbarHostState, scope)
-            } else {
-                ViewListTabContent(viewModel, lastSnackbarTime, { lastSnackbarTime = it }, snackbarHostState, scope)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
+                when (viewModel.kartablTab) {
+                    0 -> DueDatesTabContent(viewModel, dueGroups, lastSnackbarTime, { lastSnackbarTime = it }, snackbarHostState, scope)
+                    1 -> ViewListTabContent(viewModel, lastSnackbarTime, { lastSnackbarTime = it }, snackbarHostState, scope)
+                    2 -> SearchTabContent(viewModel, lastSnackbarTime, { lastSnackbarTime = it }, snackbarHostState, scope)
+                }
             }
         }
     }
@@ -216,6 +250,7 @@ fun UpcomingDueDatesScreen(
     }
 
     // Edit Server Card Dialog
+    val context = LocalContext.current
     viewModel.serverCardToEdit?.let { card ->
         var editTitleText by remember(card) { mutableStateOf(card.name) }
         var editDueDateISO by remember(card) { mutableStateOf<String?>(card.dueDate) }
@@ -335,15 +370,57 @@ fun UpcomingDueDatesScreen(
                                     shape = RoundedCornerShape(8.dp),
                                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                                        .clickable { 
+                                            val fileUrl = att.extractUrl()
+                                            android.util.Log.d("NIMA2_NETWORK", "User clicked attachment: ${att.name} | URL: $fileUrl")
+                                            if (fileUrl != null) {
+                                                viewModel.openServerFile(fileUrl, att.name, context)
+                                            }
+                                        }
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text(att.name, fontSize = 11.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        IconButton(onClick = { viewModel.deleteServerAttachment(att.id) }, modifier = Modifier.size(24.dp)) {
-                                            Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                val thumbUrl = att.extractThumbnailUrl()
+                                                
+                                                if (thumbUrl != null) {
+                                                    AsyncImage(
+                                                        model = ImageRequest.Builder(LocalContext.current)
+                                                            .data(viewModel.cardRepository.getFullUrlSync(thumbUrl))
+                                                            .crossfade(true)
+                                                            .build(),
+                                                        imageLoader = viewModel.cardRepository.getImageLoader(),
+                                                        contentDescription = null,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                        error = androidx.compose.ui.graphics.painter.ColorPainter(Color.LightGray)
+                                                    )
+                                                } else {
+                                                    val fileIcon = FileUtils.getFileIcon(att.name, att.extractMimeType())
+                                                    Icon(fileIcon, null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text(
+                                                text = att.name,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                        IconButton(onClick = { viewModel.deleteServerAttachment(att.id) }, modifier = Modifier.size(28.dp)) {
+                                            Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
                                         }
                                     }
                                 }
@@ -532,6 +609,85 @@ private fun ViewListTabContent(
                                 if (now - lastSnackbarTime > 2500) { onSnackbarTimeChange(now); scope.launch { snackbarHostState.showSnackbar("فقط در حالت آنلاین ممکن است") } }
                             }
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchTabContent(
+    viewModel: HomeViewModel,
+    lastSnackbarTime: Long,
+    onSnackbarTimeChange: (Long) -> Unit,
+    snackbarHostState: SnackbarHostState,
+    scope: kotlinx.coroutines.CoroutineScope
+) {
+    val offlineCards by viewModel.offlineCards.collectAsState()
+    val serverCards = viewModel.serverKartablCards
+    
+    val filteredCards = remember(viewModel.searchQuery, offlineCards, serverCards) {
+        val query = viewModel.searchQuery.trim().lowercase()
+        if (query.isEmpty()) emptyList<Any>()
+        else {
+            val results = mutableListOf<Any>()
+            // Search in offline cards
+            results.addAll(offlineCards.filter { it.title.lowercase().contains(query) })
+            // Search in server cards
+            results.addAll(serverCards.filter { it.name.lowercase().contains(query) })
+            results
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = viewModel.searchQuery,
+            onValueChange = { viewModel.searchQuery = it },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("جستجو در کارت‌ها...") },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            trailingIcon = {
+                if (viewModel.searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { viewModel.searchQuery = "" }) {
+                        Icon(Icons.Default.Close, null)
+                    }
+                }
+            },
+            shape = RoundedCornerShape(12.dp),
+            singleLine = true
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        if (viewModel.searchQuery.isEmpty()) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                Text("عبارتی را برای جستجو وارد کنید", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else if (filteredCards.isEmpty()) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                Text("هیچ نتیجه‌ای یافت نشد", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(filteredCards) { item ->
+                    when (item) {
+                        is OfflineCard -> {
+                            org.eshragh.nima2.ui.home.OfflineCardItem(card = item, isAnySyncing = false, onSyncedAnimationFinished = {})
+                        }
+                        is ServerKartablCard -> {
+                            SwipeableServerKartablCardItem(
+                                viewModel = viewModel,
+                                card = item,
+                                showPath = true,
+                                onDelete = { viewModel.serverCardToDeleteId = item.id },
+                                onEdit = { viewModel.serverCardToEditId = item.id },
+                                onOfflineAction = {
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastSnackbarTime > 2500) { onSnackbarTimeChange(now); scope.launch { snackbarHostState.showSnackbar("فقط در حالت آنلاین ممکن است") } }
+                                }
+                            )
+                        }
                     }
                 }
             }
