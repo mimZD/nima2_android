@@ -119,6 +119,16 @@ class HomeViewModel(
     var lastSyncTimeState by mutableStateOf<String?>(null)
         private set
 
+    // App Update State
+    val appUpdateManager = org.eshragh.nima2.util.AppUpdateManager(cardRepository.context)
+    var updateData by mutableStateOf<org.eshragh.nima2.data.remote.model.UpdateData?>(null)
+        private set
+    var updateDownloadState by mutableStateOf<org.eshragh.nima2.util.UpdateDownloadState>(org.eshragh.nima2.util.UpdateDownloadState.Idle)
+        private set
+    var showUpdateDialog by mutableStateOf(false)
+    var isCheckingUpdateState by mutableStateOf(false)
+        private set
+
     var userMessage by mutableStateOf<String?>(null)
         private set
 
@@ -189,9 +199,62 @@ class HomeViewModel(
                 }
             }
         }
+
+        // Automatic silent update check on startup
+        checkForUpdate(isManualCheck = false)
     }
     
     private var hasRestoredTab = false
+
+    fun checkForUpdate(isManualCheck: Boolean = false, onUpToDate: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            if (isManualCheck) isCheckingUpdateState = true
+            val res = appUpdateManager.checkUpdate()
+            if (isManualCheck) isCheckingUpdateState = false
+
+            res.fold(
+                onSuccess = { data ->
+                    if (data != null && data.updateAvailable && data.latestVersion != null) {
+                        updateData = data
+                        updateDownloadState = org.eshragh.nima2.util.UpdateDownloadState.Idle
+                        showUpdateDialog = true
+                    } else if (isManualCheck) {
+                        if (onUpToDate != null) {
+                            onUpToDate()
+                        } else {
+                            userMessage = "شما از آخرین نسخه برنامه استفاده می‌کنید."
+                        }
+                    }
+                },
+                onFailure = { err ->
+                    if (isManualCheck) {
+                        userMessage = "خطا در بررسی به‌روزرسانی: " + err.localizedMessage
+                    }
+                }
+            )
+        }
+    }
+
+    fun startUpdateDownload() {
+        val versionInfo = updateData?.latestVersion ?: return
+        viewModelScope.launch {
+            appUpdateManager.downloadAndPrepareApk(versionInfo) { state ->
+                updateDownloadState = state
+            }
+        }
+    }
+
+    fun installUpdateApk(file: java.io.File) {
+        appUpdateManager.installApk(file)
+    }
+
+    fun openInstallPermissionSettings() {
+        appUpdateManager.openInstallPermissionSettings()
+    }
+
+    fun dismissUpdateDialog() {
+        showUpdateDialog = false
+    }
 
     fun handleIncomingShare(text: String?, uris: List<android.net.Uri>?) {
         if (text != null && cardTitle.isEmpty()) cardTitle = text

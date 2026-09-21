@@ -75,7 +75,7 @@ data class FullListResult(
 )
 
 class CardRepository(
-    private val context: android.content.Context,
+    val context: android.content.Context,
     private val cardDao: CardDao,
     private val serverKartablDao: ServerKartablDao,
     private val metadataDao: MetadataDao,

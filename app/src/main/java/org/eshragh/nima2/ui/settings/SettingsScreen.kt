@@ -27,6 +27,7 @@ import org.eshragh.nima2.ui.home.OptionPickerDialog
 import org.eshragh.nima2.ui.theme.BrandCyan
 import org.eshragh.nima2.ui.theme.PrimaryBlue
 import org.eshragh.nima2.ui.theme.PrimaryDarkBlue
+import org.eshragh.nima2.util.toPersianDigits
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -178,8 +179,73 @@ fun SettingsScreen(
                         )
                     }
                 }
+
+                // Section: App Version & Update
+                val currentVersionName = remember { viewModel.appUpdateManager.getCurrentVersionName() }
+                val currentVersionCode = remember { viewModel.appUpdateManager.getCurrentVersionCode() }
+
+                SettingsSection(title = "درباره برنامه و به‌روزرسانی") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "نسخه فعلی برنامه:",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = ("نسخه " + currentVersionName + " (" + currentVersionCode.toString() + ")").toPersianDigits(),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                viewModel.checkForUpdate(isManualCheck = true)
+                            },
+                            enabled = !viewModel.isCheckingUpdateState,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            if (viewModel.isCheckingUpdateState) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("در حال بررسی...", fontSize = 12.sp)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.SystemUpdate,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("بررسی به‌روزرسانی", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
             }
         }
+    }
+
+    // App Update Dialog
+    if (viewModel.showUpdateDialog && viewModel.updateData != null) {
+        org.eshragh.nima2.ui.composable.AppUpdateDialog(
+            updateData = viewModel.updateData!!,
+            downloadState = viewModel.updateDownloadState,
+            onStartDownload = viewModel::startUpdateDownload,
+            onInstallApk = viewModel::installUpdateApk,
+            onOpenPermissionSettings = viewModel::openInstallPermissionSettings,
+            onDismiss = viewModel::dismissUpdateDialog
+        )
     }
 }
 

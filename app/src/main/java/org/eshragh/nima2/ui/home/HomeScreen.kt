@@ -1044,6 +1044,18 @@ fun HomeScreen(
             onDismiss = { viewModel.showListPicker = false }
         )
     }
+
+    // App Update Dialog
+    if (viewModel.showUpdateDialog && viewModel.updateData != null) {
+        org.eshragh.nima2.ui.composable.AppUpdateDialog(
+            updateData = viewModel.updateData!!,
+            downloadState = viewModel.updateDownloadState,
+            onStartDownload = viewModel::startUpdateDownload,
+            onInstallApk = viewModel::installUpdateApk,
+            onOpenPermissionSettings = viewModel::openInstallPermissionSettings,
+            onDismiss = viewModel::dismissUpdateDialog
+        )
+    }
 }
 
 @Composable
