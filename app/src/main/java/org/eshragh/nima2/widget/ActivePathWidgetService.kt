@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
 import org.eshragh.nima2.R
 import org.eshragh.nima2.data.local.AppDatabase
@@ -13,50 +13,47 @@ import org.eshragh.nima2.data.pref.UserPreferencesRepository
 
 class ActivePathWidgetService : RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory {
-        return ActivePathWidgetFactory(this.applicationContext)
+        return ActivePathRemoteViewsFactory(this.applicationContext)
     }
 }
 
-class ActivePathWidgetFactory(private val context: Context) : RemoteViewsService.RemoteViewsFactory {
+class ActivePathRemoteViewsFactory(private val context: Context) : RemoteViewsService.RemoteViewsFactory {
 
-    private var cards: List<CachedFullListCardEntity> = listOf()
+    private var items: List<CachedFullListCardEntity> = emptyList()
 
     override fun onCreate() {}
 
     override fun onDataSetChanged() {
+        val userPrefs = UserPreferencesRepository(context)
         val db = AppDatabase.getDatabase(context)
-        val prefs = UserPreferencesRepository(context)
         
-        val listId = runBlocking { 
-            prefs.viewListSelectedTarget.first().listId 
-        }
-
-        if (listId != null) {
-            cards = runBlocking { 
-                db.metadataDao().getFullListCardsSync(listId) 
+        runBlocking {
+            val savedTarget = userPrefs.viewListSelectedTarget.firstOrNull()
+            val listId = savedTarget?.listId
+            
+            if (listId != null) {
+                items = db.metadataDao().getFullListCardsSync(listId)
+            } else {
+                items = emptyList()
             }
-        } else {
-            cards = listOf()
         }
     }
 
-    override fun onDestroy() {
-        cards = listOf()
-    }
+    override fun onDestroy() {}
 
-    override fun getCount(): Int = cards.size
+    override fun getCount(): Int = items.size
 
     override fun getViewAt(position: Int): RemoteViews {
-        if (position >= cards.size) return RemoteViews(context.packageName, R.layout.widget_active_path_item)
-
-        val card = cards[position]
+        if (position >= items.size) return RemoteViews(context.packageName, R.layout.widget_active_path_item)
+        
+        val item = items[position]
         val views = RemoteViews(context.packageName, R.layout.widget_active_path_item)
-
-        views.setTextViewText(R.id.card_name, card.name)
+        
+        views.setTextViewText(R.id.card_name, item.name)
 
         val fillInIntent = Intent()
         views.setOnClickFillInIntent(R.id.widget_item_container, fillInIntent)
-
+        
         return views
     }
 

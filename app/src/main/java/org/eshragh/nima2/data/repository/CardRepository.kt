@@ -447,10 +447,20 @@ class CardRepository(
 
                 Result.success(FullListResult(resultCards, attachments))
             } else {
-                Result.failure(Exception("خطا در دریافت کارت‌های لیست: ${response.code()}"))
+                val cached = getFullListCardsSync(listId, projectId, projectName, boardId, boardName, listName)
+                if (cached.isNotEmpty()) {
+                    Result.success(FullListResult(cached, emptyList()))
+                } else {
+                    Result.failure(Exception("خطا در دریافت کارت‌های لیست: ${response.code()}"))
+                }
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            val cached = getFullListCardsSync(listId, projectId, projectName, boardId, boardName, listName)
+            if (cached.isNotEmpty()) {
+                Result.success(FullListResult(cached, emptyList()))
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
@@ -458,6 +468,44 @@ class CardRepository(
         val projects = metadataDao.getCachedProjects().map { PlankaProject(it.id, it.name) }
         val boards = metadataDao.getCachedBoards().map { PlankaBoard(it.id, it.projectId, it.name) }
         return ProjectsAndBoardsResult(projects, boards)
+    }
+
+    suspend fun getCachedListsGroupedByBoard(): Map<String, List<PlankaList>> {
+        return metadataDao.getAllCachedLists()
+            .groupBy { it.boardId }
+            .mapValues { entry -> entry.value.map { PlankaList(it.id, it.boardId, it.name) } }
+    }
+
+    suspend fun getCachedLabelsGroupedByBoard(): Map<String, List<PlankaLabel>> {
+        return metadataDao.getAllCachedLabels()
+            .groupBy { it.boardId }
+            .mapValues { entry -> entry.value.map { PlankaLabel(it.id, it.boardId, it.name, it.color) } }
+    }
+
+    suspend fun getAllCachedFullListCardsSync(): List<ServerKartablCard> {
+        return metadataDao.getAllCachedFullListCardsSync().map { entity ->
+            val assignedLabels = if (!entity.labelNames.isNullOrBlank()) {
+                val names = entity.labelNames.split(",")
+                val colors = entity.labelColors?.split(",") ?: emptyList()
+                names.mapIndexed { idx, name ->
+                    PlankaLabel(id = "cached_full_$idx", boardId = "", name = name, color = colors.getOrNull(idx))
+                }
+            } else emptyList()
+
+            ServerKartablCard(
+                id = entity.id,
+                name = entity.name,
+                projectId = "",
+                projectName = "کش شده",
+                boardId = "",
+                boardName = "",
+                listId = entity.listId,
+                listName = "",
+                dueDate = entity.dueDate,
+                labels = assignedLabels,
+                attachmentCount = entity.attachmentCount
+            )
+        }
     }
 
     suspend fun addOfflineCard(
@@ -809,7 +857,20 @@ class CardRepository(
                     }
                     serverKartablDao.insertCards(entities)
                 }
-            } catch (_: Exception) {}
+
+                // NEW: Cache all lists and labels discovered during global sync
+                val allLists = boardListsMap.values.flatten()
+                if (allLists.isNotEmpty()) {
+                    metadataDao.insertLists(allLists.map { CachedListEntity(it.id, it.boardId, it.name ?: "لیست") })
+                }
+                val allLabels = boardLabelsMap.values.flatten()
+                if (allLabels.isNotEmpty()) {
+                    metadataDao.insertLabels(allLabels.map { CachedLabelEntity(it.id, it.boardId, it.name ?: "برچسب", it.color ?: "blue-xchange") })
+                }
+                android.util.Log.d("NIMA2_DEBUG", "Global Sync: Cached ${kartablCards.size} cards, ${allLists.size} lists, ${allLabels.size} labels")
+            } catch (e: Exception) {
+                android.util.Log.e("NIMA2_DEBUG", "Error saving global sync cache: ${e.message}")
+            }
 
             Result.success(result)
         } catch (e: Exception) {

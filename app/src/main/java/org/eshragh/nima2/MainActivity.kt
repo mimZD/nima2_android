@@ -56,18 +56,23 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
-        android.util.Log.d("NIMA2_SHARE", "MainActivity handleIntent Action: ${intent.action}")
+        android.util.Log.d("NIMA2_SHARE", "MainActivity handleIntent Action: ${intent.action}, Type: ${intent.type}")
         
         val extractedUris = mutableListOf<Uri>()
         var extractedText: String? = intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.getStringExtra(Intent.EXTRA_SUBJECT)
 
         // Thorough extraction from ClipData
         intent.clipData?.let { clipData ->
+            android.util.Log.d("NIMA2_SHARE", "Checking ClipData: count=${clipData.itemCount}")
             for (i in 0 until clipData.itemCount) {
                 val item = clipData.getItemAt(i)
-                item.uri?.let { if (!extractedUris.contains(it)) extractedUris.add(it) }
+                item.uri?.let { 
+                    android.util.Log.d("NIMA2_SHARE", "Extracted URI from ClipData: $it")
+                    if (!extractedUris.contains(it)) extractedUris.add(it) 
+                }
                 if (extractedText == null && item.text != null) {
                     extractedText = item.text.toString()
+                    android.util.Log.d("NIMA2_SHARE", "Extracted text from ClipData: $extractedText")
                 }
             }
         }
@@ -91,10 +96,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 
-                streamUris?.forEach { if (!extractedUris.contains(it)) extractedUris.add(it) }
+                streamUris?.forEach { 
+                    android.util.Log.d("NIMA2_SHARE", "Extracted URI from EXTRA_STREAM: $it")
+                    if (!extractedUris.contains(it)) extractedUris.add(it) 
+                }
                 
                 if (extractedText != null || extractedUris.isNotEmpty()) {
-                    android.util.Log.d("NIMA2_SHARE", "Posting share data to Manager. Text: ${extractedText?.take(10)}")
+                    android.util.Log.d("NIMA2_SHARE", "Posting share data to Manager. Text: ${extractedText?.take(10)}, Uris: ${extractedUris.size}")
                     ShareManager.setShareData(extractedText, if (extractedUris.isEmpty()) null else extractedUris)
                 }
             }

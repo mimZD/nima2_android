@@ -61,11 +61,20 @@ interface MetadataDao {
     @Query("SELECT * FROM cached_labels WHERE boardId = :boardId")
     suspend fun getCachedLabelsForBoard(boardId: String): List<CachedLabelEntity>
 
+    @Query("SELECT * FROM cached_lists")
+    suspend fun getAllCachedLists(): List<CachedListEntity>
+
+    @Query("SELECT * FROM cached_labels")
+    suspend fun getAllCachedLabels(): List<CachedLabelEntity>
+
     @Query("SELECT * FROM cached_full_list_cards WHERE listId = :listId ORDER BY position ASC")
     fun getFullListCards(listId: String): kotlinx.coroutines.flow.Flow<List<CachedFullListCardEntity>>
 
     @Query("SELECT * FROM cached_full_list_cards WHERE listId = :listId ORDER BY position ASC")
     suspend fun getFullListCardsSync(listId: String): List<CachedFullListCardEntity>
+
+    @Query("SELECT * FROM cached_full_list_cards")
+    suspend fun getAllCachedFullListCardsSync(): List<CachedFullListCardEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProjects(projects: List<CachedProjectEntity>): List<Long>

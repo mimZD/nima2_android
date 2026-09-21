@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -722,7 +723,11 @@ fun HomeScreen(
                     )
                 },
                 text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
                         EditCardDestinationSelector(
                             selectedProject = viewModel.selectedProject,
                             selectedBoard = viewModel.selectedBoard,
@@ -903,7 +908,11 @@ fun HomeScreen(
                     )
                 },
                 text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
                         EditCardDestinationSelector(
                             selectedProject = viewModel.selectedProject,
                             selectedBoard = viewModel.selectedBoard,
@@ -1263,44 +1272,45 @@ fun OptionPickerDialog(
                 if (options.isEmpty()) {
                     Text("هیچ گزینه‌ای یافت نشد.")
                 } else {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    val scrollState = rememberScrollState()
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(scrollState)
+                    ) {
                         options.forEachIndexed { index, optionName ->
                             val isSelected = optionName == selectedOption
                             Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent,
+                                border = BorderStroke(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                ),
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
                                     .clickable { onOptionSelected(index) }
-                                    .padding(vertical = 2.dp)
                             ) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 8.dp, horizontal = 8.dp),
+                                        .padding(vertical = 12.dp, horizontal = 16.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    RadioButton(
-                                        selected = isSelected,
-                                        onClick = { onOptionSelected(index) },
-                                        colors = RadioButtonDefaults.colors(
-                                            selectedColor = MaterialTheme.colorScheme.secondary
-                                        )
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
                                         text = optionName,
                                         fontSize = 15.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f)
                                     )
                                     if (isSelected) {
-                                        Spacer(modifier = Modifier.weight(1f))
                                         Icon(
-                                            imageVector = Icons.Default.Check,
+                                            imageVector = Icons.Default.CheckCircle,
                                             contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.secondary,
-                                            modifier = Modifier.size(18.dp)
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
                                         )
                                     }
                                 }

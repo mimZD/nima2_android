@@ -48,6 +48,8 @@ class HomeViewModel(
         private set
     var serverKartablCards by mutableStateOf<List<ServerKartablCard>>(emptyList())
         private set
+    var cachedFullListCards by mutableStateOf<List<ServerKartablCard>>(emptyList())
+        private set
     var boardLabelsMap by mutableStateOf<Map<String, List<PlankaLabel>>>(emptyMap())
         private set
     var boardListsMap by mutableStateOf<Map<String, List<PlankaList>>>(emptyMap())
@@ -121,7 +123,7 @@ class HomeViewModel(
         private set
 
     init {
-        android.util.Log.d("NIMA2_SHARE", "HomeViewModel initialized: instance ${hashCode()}")
+        android.util.Log.d("NIMA2_SHARE", "HomeViewModel initialized: instance " + hashCode())
         
         viewModelScope.launch {
             userPreferencesRepository.lastSyncTime.collect { time ->
@@ -131,16 +133,38 @@ class HomeViewModel(
         
         viewModelScope.launch {
             try {
+                android.util.Log.d("NIMA2_DEBUG", "Starting initial cache load...")
                 val data = cardRepository.getCachedProjectsAndBoardsSync()
                 allProjects = data.projects; allBoards = data.boards
-                android.util.Log.d("NIMA2_DEBUG", "Cache loaded on instance ${hashCode()}")
-            } catch (_: Exception) {}
+                
+                boardListsMap = cardRepository.getCachedListsGroupedByBoard()
+                boardLabelsMap = cardRepository.getCachedLabelsGroupedByBoard()
+                cachedFullListCards = cardRepository.getAllCachedFullListCardsSync()
+                
+                android.util.Log.d("NIMA2_DEBUG", "Initial cache loaded: Projects=" + allProjects.size + ", Boards=" + allBoards.size + ", BoardsWithLists=" + boardListsMap.size + ", FullCacheCards=" + cachedFullListCards.size)
+
+                loadInitialDataAndRestoreSelections()
+                loadViewListRestoreSelections()
+            } catch (e: Exception) {
+                android.util.Log.e("NIMA2_DEBUG", "Error loading initial cache: " + e.message)
+                loadInitialDataAndRestoreSelections()
+                loadViewListRestoreSelections()
+            }
         }
-        viewModelScope.launch { cardRepository.cachedServerCards.collect { serverKartablCards = it } }
+        
+        viewModelScope.launch { 
+            cardRepository.cachedServerCards.collect { 
+                android.util.Log.d("NIMA2_DEBUG", "Flow emission: cachedServerCards updated, size = " + it.size)
+                serverKartablCards = it 
+            } 
+        }
+        
         viewModelScope.launch { cardRepository.offlineCards.collect { offlineCardsState = it } }
+        
         viewModelScope.launch {
             userPreferencesRepository.viewListSelectedTarget.collect { saved ->
                 if (viewListSelectedList == null && saved.listId != null) {
+                    android.util.Log.d("NIMA2_DEBUG", "Observing viewListSelectedTarget, loading cards for " + saved.listId)
                     cardRepository.getFullListCards(saved.listId, saved.projectId ?: "", saved.projectName ?: "", saved.boardId ?: "", saved.boardName ?: "", saved.listName ?: "").collect { if (viewListCards.isEmpty()) viewListCards = it }
                 }
             }
@@ -155,25 +179,27 @@ class HomeViewModel(
                 quickMoveSelectedList = if (saved.listId != null) PlankaList(saved.listId, saved.boardId ?: "", saved.listName) else null
             }
         }
-        loadInitialDataAndRestoreSelections()
-        loadViewListRestoreSelections()
+        
+        viewModelScope.launch {
+            ShareManager.pendingShare.collect { data ->
+                if (data != null) {
+                    android.util.Log.d("NIMA2_SHARE", "Collecting shared data on instance " + hashCode())
+                    handleIncomingShare(data.text, data.uris)
+                    ShareManager.consumeShareData()
+                }
+            }
+        }
     }
-
+    
     private var hasRestoredTab = false
 
     fun handleIncomingShare(text: String?, uris: List<android.net.Uri>?) {
-        android.util.Log.d("NIMA2_SHARE", "[Step 1] handleIncomingShare called on instance ${hashCode()}")
-        if (text != null) {
-            cardTitle = text
-            android.util.Log.d("NIMA2_SHARE", "[Step 2] Title set")
-        }
+        if (text != null && cardTitle.isEmpty()) cardTitle = text
         if (uris != null) {
             val existing = selectedAttachmentUris.toSet()
             selectedAttachmentUris = selectedAttachmentUris + uris.filter { !existing.contains(it) }
-            android.util.Log.d("NIMA2_SHARE", "[Step 2] Uris added")
         }
         showAddCardDialog = true
-        android.util.Log.d("NIMA2_SHARE", "[Step 3] showAddCardDialog is now: $showAddCardDialog")
     }
 
     fun consumeIncomingShare() {
@@ -185,12 +211,22 @@ class HomeViewModel(
             val saved = userPreferencesRepository.viewListSelectedTarget.firstOrNull() ?: return@launch
             val serverUrl = userPreferencesRepository.serverUrl.firstOrNull() ?: return@launch
             val token = userPreferencesRepository.authToken.firstOrNull() ?: return@launch
+            
+            android.util.Log.d("NIMA2_DEBUG", "Restoring View List Selection: Board=" + saved.boardId + ", List=" + saved.listId)
+
             viewListSelectedProject = allProjects.find { it.id == saved.projectId } ?: if (saved.projectId != null) PlankaProject(saved.projectId, saved.projectName ?: "پروژه") else null
             viewListSelectedBoard = allBoards.find { it.id == saved.boardId } ?: if (saved.boardId != null) PlankaBoard(saved.boardId, saved.projectId, saved.boardName ?: "بورد") else null
-            if (saved.listId != null) {
-                viewListSelectedList = boardListsMap[saved.boardId]?.find { it.id == saved.listId } ?: PlankaList(saved.listId, saved.boardId ?: "", saved.listName)
-                if (saved.boardId != null && !boardListsMap.containsKey(saved.boardId)) fetchListsForBoardId(saved.boardId)
-                loadFullListCards(saved.listId)
+
+            if (saved.boardId != null) {
+                if (!boardListsMap.containsKey(saved.boardId)) {
+                    android.util.Log.d("NIMA2_DEBUG", "Lists not in map for board " + saved.boardId + ", fetching...")
+                    fetchListsForBoardId(saved.boardId)
+                }
+                
+                if (saved.listId != null) {
+                    viewListSelectedList = boardListsMap[saved.boardId]?.find { it.id == saved.listId } ?: PlankaList(saved.listId, saved.boardId ?: "", saved.listName)
+                    loadFullListCards(saved.listId)
+                }
             }
         }
     }
@@ -200,16 +236,24 @@ class HomeViewModel(
         viewModelScope.launch {
             val serverUrl = userPreferencesRepository.serverUrl.firstOrNull() ?: return@launch
             val token = userPreferencesRepository.authToken.firstOrNull() ?: return@launch
+            android.util.Log.d("NIMA2_DEBUG", "Loading cards for list: " + listId + " (" + listName + ")")
             isFetchingViewList = true
             val res = cardRepository.fetchFullListCards(serverUrl, token, proj.id, proj.name, board.id, board.name, listId, listName)
             isFetchingViewList = false
             res.fold(onSuccess = { result ->
+                android.util.Log.d("NIMA2_DEBUG", "Successfully loaded " + result.cards.size + " cards for list: " + listId)
                 viewListCards = result.cards
                 val updatedMap = boardAttachmentsMap.toMutableMap()
                 updatedMap[board.id] = result.attachments
                 boardAttachmentsMap = updatedMap
                 updateSyncTime()
-            }, onFailure = {})
+                
+                viewModelScope.launch {
+                    cachedFullListCards = cardRepository.getAllCachedFullListCardsSync()
+                }
+            }, onFailure = { e ->
+                android.util.Log.e("NIMA2_DEBUG", "Failed to load cards for list " + listId + ": " + e.message)
+            })
         }
     }
 
@@ -237,7 +281,7 @@ class HomeViewModel(
                 selectedBoard = board
                 if (board != null) loadListsForBoard(serverUrl, token, board.id, saved?.listId)
                 loadServerKartablCards()
-            }, onFailure = { err -> userMessage = "خطا در دریافت پروژه‌ها: ${err.localizedMessage}" })
+            }, onFailure = { err -> userMessage = "خطا در دریافت پروژه‌ها: " + err.localizedMessage })
         }
     }
 
@@ -245,11 +289,15 @@ class HomeViewModel(
         viewModelScope.launch {
             val serverUrl = userPreferencesRepository.serverUrl.firstOrNull() ?: return@launch
             val token = userPreferencesRepository.authToken.firstOrNull() ?: return@launch
+            android.util.Log.d("NIMA2_DEBUG", "Fetching lists for board: " + boardId)
             val res = cardRepository.fetchBoardDetailsContent(serverUrl, token, boardId)
             res.fold(onSuccess = { content ->
+                android.util.Log.d("NIMA2_DEBUG", "Successfully fetched " + content.lists.size + " lists for board: " + boardId)
                 val updatedListsMap = boardListsMap.toMutableMap(); updatedListsMap[boardId] = content.lists; boardListsMap = updatedListsMap
                 val updatedLabelsMap = boardLabelsMap.toMutableMap(); updatedLabelsMap[boardId] = content.labels; boardLabelsMap = updatedLabelsMap
-            }, onFailure = {})
+            }, onFailure = { e ->
+                android.util.Log.e("NIMA2_DEBUG", "Failed to fetch lists for board " + boardId + ": " + e.message)
+            })
         }
     }
 
@@ -261,7 +309,7 @@ class HomeViewModel(
             val updatedLabelsMap = boardLabelsMap.toMutableMap(); updatedLabelsMap[boardId] = content.labels; boardLabelsMap = updatedLabelsMap
             val list = content.lists.find { it.id == preferredListId } ?: content.lists.firstOrNull()
             selectedList = list; persistSelection(selectedProject, selectedBoard, list)
-        }, onFailure = { err -> availableLists = emptyList(); availableLabels = emptyList(); selectedList = null; userMessage = "خطا در دریافت لیست‌های بورد: ${err.localizedMessage}" })
+        }, onFailure = { err -> availableLists = emptyList(); availableLabels = emptyList(); selectedList = null; userMessage = "خطا در دریافت لیست‌های بورد: " + err.localizedMessage })
     }
 
     fun selectProject(project: PlankaProject) {
@@ -303,7 +351,7 @@ class HomeViewModel(
     }
 
     fun saveOfflineCardsBatch(splitPerLine: Boolean) {
-        val targetList = selectedList ?: return; val fullPathName = "${selectedProject?.name ?: "پروژه"} ← ${selectedBoard?.name ?: "بورد"} ← ${targetList.name ?: "لیست"}"
+        val targetList = selectedList ?: return; val projName = selectedProject?.name ?: "پروژه"; val boardName = selectedBoard?.name ?: "بورد"; val listName = targetList.name ?: "لیست"; val fullPathName = projName + " ← " + boardName + " ← " + listName
         val labelIdsStr = if (selectedLabelIds.isNotEmpty()) selectedLabelIds.joinToString(",") else null
         val selectedLabelsList = availableLabels.filter { selectedLabelIds.contains(it.id) }
         val labelNamesStr = if (selectedLabelsList.isNotEmpty()) selectedLabelsList.map { it.name ?: it.color ?: "برچسب" }.joinToString(",") else null
@@ -312,7 +360,7 @@ class HomeViewModel(
         viewModelScope.launch {
             val localPaths = selectedAttachmentUris.mapNotNull { cardRepository.saveLocalFile(it) }; val localPathsStr = if (localPaths.isNotEmpty()) localPaths.joinToString(",") else null
             linesToSave.forEachIndexed { index, line -> val paths = if (index == 0) localPathsStr else null; val count = if (index == 0) localPaths.size else 0; cardRepository.addOfflineCard(line, targetList.id, fullPathName, labelIdsStr, labelNamesStr, labelColorsStr, selectedDueDateISO, paths, count) }
-            cardTitle = ""; selectedLabelIds = emptySet(); selectedDueDateISO = null; selectedAttachmentUris = emptyList(); showAddCardDialog = false; showMultilinePromptDialog = false; userMessage = if (linesToSave.size > 1) "${linesToSave.size} کارت ذخیره شد" else "کارت ذخیره شد"
+            cardTitle = ""; selectedLabelIds = emptySet(); selectedDueDateISO = null; selectedAttachmentUris = emptyList(); showAddCardDialog = false; showMultilinePromptDialog = false; userMessage = if (linesToSave.size > 1) linesToSave.size.toString() + " کارت ذخیره شد" else "کارت ذخیره شد"
         }
     }
 
@@ -331,6 +379,10 @@ class HomeViewModel(
                     boardLabelsMap = result.boardLabelsMap
                     boardAttachmentsMap = result.boardAttachmentsMap
                     updateSyncTime()
+                    
+                    viewModelScope.launch {
+                        cachedFullListCards = cardRepository.getAllCachedFullListCardsSync()
+                    }
                 },
                 onFailure = {}
             )
@@ -357,7 +409,7 @@ class HomeViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        android.util.Log.d("NIMA2_SHARE", "HomeViewModel onCleared: instance ${hashCode()}")
+        android.util.Log.d("NIMA2_SHARE", "HomeViewModel onCleared: instance " + hashCode())
     }
 
     class Factory(

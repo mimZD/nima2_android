@@ -36,7 +36,6 @@ class OverdueWidgetProvider : AppWidgetProvider() {
     private fun updateAppWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
         val views = RemoteViews(context.packageName, R.layout.widget_overdue)
 
-        // Set up the intent for the ListView
         val intent = Intent(context, OverdueWidgetService::class.java).apply {
             putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
             data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
@@ -44,7 +43,6 @@ class OverdueWidgetProvider : AppWidgetProvider() {
         views.setRemoteAdapter(R.id.list_view, intent)
         views.setEmptyView(R.id.list_view, R.id.empty_view)
 
-        // Set up Refresh Button
         val refreshIntent = Intent(context, OverdueWidgetProvider::class.java).apply {
             action = ACTION_REFRESH
         }
@@ -53,7 +51,6 @@ class OverdueWidgetProvider : AppWidgetProvider() {
         )
         views.setOnClickPendingIntent(R.id.refresh_button, refreshPendingIntent)
 
-        // Set up Item Click (opens MainActivity)
         val appIntent = Intent(context, MainActivity::class.java)
         val appPendingIntent = PendingIntent.getActivity(
             context, 0, appIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

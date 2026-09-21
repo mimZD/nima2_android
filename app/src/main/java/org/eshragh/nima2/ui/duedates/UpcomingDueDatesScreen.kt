@@ -13,8 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -58,6 +56,8 @@ import org.eshragh.nima2.util.JalaliCalendarHelper
 import org.eshragh.nima2.util.NetworkUtils
 import org.eshragh.nima2.util.toPersianDigits
 import org.eshragh.nima2.util.FileUtils
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 
 private enum class DueCategory {
     OVERDUE, TODAY, UPCOMING
@@ -89,7 +89,6 @@ fun UpcomingDueDatesScreen(
 
     LaunchedEffect(Unit) {
         viewModel.loadServerKartablCards()
-        // Reset to default tab when screen opens
         viewModel.kartablTab = viewModel.defaultKartablTabPreference
     }
 
@@ -153,7 +152,7 @@ fun UpcomingDueDatesScreen(
                         actions = {
                             viewModel.lastSyncTimeState?.let { time ->
                                 Text(
-                                    text = "بروزرسانی: ${time.toPersianDigits()}",
+                                    text = "بروزرسانی: " + time.toPersianDigits(),
                                     color = Color.White.copy(alpha = 0.8f),
                                     fontSize = 10.sp,
                                     modifier = Modifier.padding(end = 12.dp)
@@ -219,9 +218,15 @@ fun UpcomingDueDatesScreen(
                     .padding(16.dp)
             ) {
                 when (viewModel.kartablTab) {
-                    0 -> DueDatesTabContent(viewModel, dueGroups, lastSnackbarTime, { lastSnackbarTime = it }, snackbarHostState, scope)
-                    1 -> ViewListTabContent(viewModel, lastSnackbarTime, { lastSnackbarTime = it }, snackbarHostState, scope)
-                    2 -> SearchTabContent(viewModel, lastSnackbarTime, { lastSnackbarTime = it }, snackbarHostState, scope)
+                    0 -> {
+                        DueDatesTabContent(viewModel, dueGroups, lastSnackbarTime, { lastSnackbarTime = it }, snackbarHostState, scope)
+                    }
+                    1 -> {
+                        ViewListTabContent(viewModel, lastSnackbarTime, { lastSnackbarTime = it }, snackbarHostState, scope)
+                    }
+                    2 -> {
+                        SearchTabContent(viewModel, lastSnackbarTime, { lastSnackbarTime = it }, snackbarHostState, scope)
+                    }
                 }
             }
         }
@@ -359,7 +364,6 @@ fun UpcomingDueDatesScreen(
                         Spacer(modifier = Modifier.height(10.dp))
                         DueDateSelectorButton(dueDateIso = editDueDateISO, onClick = { showEditDatePicker = true }, onClear = { editDueDateISO = null })
                         
-                        // Server Attachments Section
                         val serverAttachments = viewModel.boardAttachmentsMap[card.boardId]?.filter { it.cardId == card.id } ?: emptyList()
                         if (serverAttachments.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(10.dp))
@@ -372,7 +376,6 @@ fun UpcomingDueDatesScreen(
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
                                         .clickable { 
                                             val fileUrl = att.extractUrl()
-                                            android.util.Log.d("NIMA2_NETWORK", "User clicked attachment: ${att.name} | URL: $fileUrl")
                                             if (fileUrl != null) {
                                                 viewModel.openServerFile(fileUrl, att.name, context)
                                             }
@@ -392,7 +395,6 @@ fun UpcomingDueDatesScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 val thumbUrl = att.extractThumbnailUrl()
-                                                
                                                 if (thumbUrl != null) {
                                                     AsyncImage(
                                                         model = ImageRequest.Builder(LocalContext.current)
@@ -514,7 +516,7 @@ private fun DueDatesTabContent(
                                     if (group.category == DueCategory.UPCOMING) isUpcomingExpanded = !isUpcomingExpanded
                                 }
                             ) {
-                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
                                             imageVector = when (group.category) {
@@ -527,7 +529,7 @@ private fun DueDatesTabContent(
                                             modifier = Modifier.size(18.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("${group.title} (${group.cards.size.toPersianDigits()})", fontWeight = FontWeight.Bold, color = group.color)
+                                        Text(group.title + " (" + group.cards.size.toPersianDigits() + ")", fontWeight = FontWeight.Bold, color = group.color)
                                     }
                                     if (group.category != DueCategory.TODAY) {
                                         Icon(if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, tint = group.color)
@@ -542,9 +544,7 @@ private fun DueDatesTabContent(
                                     card = card,
                                     showPath = true,
                                     onDelete = { viewModel.serverCardToDeleteId = card.id },
-                                    onEdit = { 
-                                        viewModel.serverCardToEditId = card.id
-                                    },
+                                    onEdit = { viewModel.serverCardToEditId = card.id },
                                     onOfflineAction = {
                                         val now = System.currentTimeMillis()
                                         if (now - lastSnackbarTime > 2500) { onSnackbarTimeChange(now); scope.launch { snackbarHostState.showSnackbar("فقط در حالت آنلاین ممکن است") } }
@@ -601,9 +601,7 @@ private fun ViewListTabContent(
                             card = card,
                             showPath = false,
                             onDelete = { viewModel.serverCardToDeleteId = card.id },
-                            onEdit = {
-                                viewModel.serverCardToEditId = card.id
-                            },
+                            onEdit = { viewModel.serverCardToEditId = card.id },
                             onOfflineAction = {
                                 val now = System.currentTimeMillis()
                                 if (now - lastSnackbarTime > 2500) { onSnackbarTimeChange(now); scope.launch { snackbarHostState.showSnackbar("فقط در حالت آنلاین ممکن است") } }
@@ -626,16 +624,27 @@ private fun SearchTabContent(
 ) {
     val offlineCards by viewModel.offlineCards.collectAsState()
     val serverCards = viewModel.serverKartablCards
+    val fullCacheCards = viewModel.cachedFullListCards
     
-    val filteredCards = remember(viewModel.searchQuery, offlineCards, serverCards) {
+    val filteredCards = remember(viewModel.searchQuery, offlineCards, serverCards, fullCacheCards) {
         val query = viewModel.searchQuery.trim().lowercase()
         if (query.isEmpty()) emptyList<Any>()
         else {
             val results = mutableListOf<Any>()
-            // Search in offline cards
-            results.addAll(offlineCards.filter { it.title.lowercase().contains(query) })
-            // Search in server cards
-            results.addAll(serverCards.filter { it.name.lowercase().contains(query) })
+            val foundIds = mutableSetOf<String>()
+
+            val offFiltered = offlineCards.filter { it.title.lowercase().contains(query) }
+            results.addAll(offFiltered)
+
+            val allServer = (serverCards + fullCacheCards).filter { card ->
+                if (foundIds.contains(card.id)) false
+                else {
+                    val matches = card.name.lowercase().contains(query)
+                    if (matches) foundIds.add(card.id)
+                    matches
+                }
+            }
+            results.addAll(allServer)
             results
         }
     }
@@ -710,32 +719,19 @@ fun SwipeableServerKartablCardItem(
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { dismissValue ->
             if (dismissValue == SwipeToDismissBoxValue.Settled) return@rememberSwipeToDismissBoxState false
-
             if (!NetworkUtils.isNetworkAvailable(context)) {
                 onOfflineAction()
                 return@rememberSwipeToDismissBoxState false
             }
             
-            // FINAL RTL CORRECTION:
-            // Swiping LEFT (hand moves Right -> Left) is StartToEnd
-            // Swiping RIGHT (hand moves Left -> Right) is EndToStart
-            
-            val action = if (dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                // Visual LEFT
-                viewModel.leftSwipeActionPreference
-            } else {
-                // Visual RIGHT
-                viewModel.rightSwipeActionPreference
-            }
-            
-            android.util.Log.d("NIMA2_EDIT_DEBUG", "Swipe confirmed! Value: $dismissValue, Action: $action")
+            val action = if (dismissValue == SwipeToDismissBoxValue.StartToEnd) viewModel.leftSwipeActionPreference else viewModel.rightSwipeActionPreference
             
             when (action) {
                 0 -> onEdit()
                 1 -> onDelete()
                 2 -> viewModel.quickMoveServerCard(card)
             }
-            false // always snap back
+            false
         }
     )
 
@@ -754,14 +750,7 @@ fun SwipeableServerKartablCardItem(
                 }
 
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(config.bgColor)
-                        .padding(horizontal = 16.dp),
-                    // In RTL: CenterStart is RIGHT, CenterEnd is LEFT
-                    // If card moves LEFT (revealing RIGHT side), we show action on the RIGHT (CenterStart)
-                    // If card moves RIGHT (revealing LEFT side), we show action on the LEFT (CenterEnd)
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(config.bgColor).padding(horizontal = 16.dp),
                     contentAlignment = if (isVisualLeft) Alignment.CenterStart else Alignment.CenterEnd
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -769,12 +758,7 @@ fun SwipeableServerKartablCardItem(
                             Text(config.label, fontWeight = FontWeight.Bold, color = config.textColor)
                             Spacer(Modifier.width(8.dp))
                         }
-                        Icon(
-                            imageVector = config.icon, 
-                            contentDescription = null, 
-                            tint = config.textColor,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        Icon(imageVector = config.icon, contentDescription = null, tint = config.textColor, modifier = Modifier.size(24.dp))
                         if (isVisualLeft) {
                             Spacer(Modifier.width(8.dp))
                             Text(config.label, fontWeight = FontWeight.Bold, color = config.textColor)
@@ -786,12 +770,7 @@ fun SwipeableServerKartablCardItem(
     ) { ServerKartablCardItem(viewModel, card, showPath, onEdit, onDelete, onOfflineAction) }
 }
 
-private data class ActionConfig(
-    val bgColor: Color,
-    val icon: ImageVector,
-    val label: String,
-    val textColor: Color
-)
+private data class ActionConfig(val bgColor: Color, val icon: ImageVector, val label: String, val textColor: Color)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -809,15 +788,7 @@ fun ServerKartablCardItem(
 
     Box {
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .combinedClickable(
-                    onClick = {},
-                    onLongClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        showMenu = true
-                    }
-                ),
+            modifier = Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); showMenu = true }),
             shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f)),
@@ -832,10 +803,7 @@ fun ServerKartablCardItem(
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             lineHeight = 22.sp,
-                            style = TextStyle(
-                                textAlign = TextAlign.Right,
-                                textIndent = if (hasDueDate) TextIndent(firstLine = 85.sp) else TextIndent.None
-                            ),
+                            style = TextStyle(textAlign = TextAlign.Right, textIndent = if (hasDueDate) TextIndent(firstLine = 85.sp) else TextIndent.None),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -851,11 +819,12 @@ fun ServerKartablCardItem(
                         }
                     }
                     if (showPath) {
-                        val pathString = "${card.projectName} ← ${card.boardName} ← ${card.listName}"
-                        if (pathString.length > 5) {
-                            Spacer(Modifier.height(6.dp))
-                            DestinationPathChips(pathString)
-                        }
+                        val pName = if (card.projectName.isBlank()) "پروژه" else card.projectName
+                        val bName = if (card.boardName.isBlank()) "بورد" else card.boardName
+                        val lName = if (card.listName.isBlank()) "لیست" else card.listName
+                        val pathString = pName + " ← " + bName + " ← " + lName
+                        Spacer(Modifier.height(6.dp))
+                        DestinationPathChips(pathString)
                     }
                 }
 
@@ -867,78 +836,28 @@ fun ServerKartablCardItem(
                         contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                         modifier = Modifier.align(Alignment.TopEnd)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                             Icon(Icons.Default.DateRange, null, Modifier.size(12.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = jalali.toShortPersianDisplay().toPersianDigits(),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Text(text = jalali.toShortPersianDisplay().toPersianDigits(), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
 
                 if (card.attachmentCount > 0) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(bottom = 10.dp, end = 12.dp)
-                    ) {
-                        Text(
-                            text = card.attachmentCount.toPersianDigits(),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 10.dp, end = 12.dp)) {
+                        Text(text = card.attachmentCount.toPersianDigits(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = org.eshragh.nima2.ui.home.AttachmentIcon,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
+                        Icon(imageVector = org.eshragh.nima2.ui.home.AttachmentIcon, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                     }
                 }
             }
         }
 
-        DropdownMenu(
-            expanded = showMenu,
-            onDismissRequest = { showMenu = false }
-        ) {
-            // Show all 3 actions in the long-press menu for convenience
-            DropdownMenuItem(
-                text = { Text("ویرایش") },
-                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                onClick = {
-                    showMenu = false
-                    if (!NetworkUtils.isNetworkAvailable(context)) onOfflineAction()
-                    else onEdit()
-                }
-            )
-            DropdownMenuItem(
-                text = { Text("حذف") },
-                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-                onClick = {
-                    showMenu = false
-                    if (!NetworkUtils.isNetworkAvailable(context)) onOfflineAction()
-                    else onDelete()
-                }
-            )
-            DropdownMenuItem(
-                text = { Text("انتقال سریع") },
-                leadingIcon = { Icon(Icons.Default.Send, contentDescription = null) },
-                onClick = {
-                    showMenu = false
-                    if (!NetworkUtils.isNetworkAvailable(context)) onOfflineAction()
-                    else viewModel.quickMoveServerCard(card)
-                }
-            )
+        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            DropdownMenuItem(text = { Text("ویرایش") }, leadingIcon = { Icon(Icons.Default.Edit, null) }, onClick = { showMenu = false; if (!NetworkUtils.isNetworkAvailable(context)) onOfflineAction() else onEdit() })
+            DropdownMenuItem(text = { Text("حذف") }, leadingIcon = { Icon(Icons.Default.Delete, null) }, onClick = { showMenu = false; if (!NetworkUtils.isNetworkAvailable(context)) onOfflineAction() else onDelete() })
+            DropdownMenuItem(text = { Text("انتقال سریع") }, leadingIcon = { Icon(Icons.Default.Send, null) }, onClick = { showMenu = false; if (!NetworkUtils.isNetworkAvailable(context)) onOfflineAction() else viewModel.quickMoveServerCard(card) })
         }
     }
 }
